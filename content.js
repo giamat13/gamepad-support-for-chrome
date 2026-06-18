@@ -238,7 +238,25 @@
     });
   }
 
+  const COMBO_WINDOW_MS = 500;
+  let lastLBTime = 0;
+  let lastRBTime = 0;
+
   function onButtonDown(index) {
+    if (index === BTN.LB || index === BTN.RB) {
+      const now = Date.now();
+      const other = index === BTN.LB ? lastRBTime : lastLBTime;
+      if (index === BTN.LB) lastLBTime = now; else lastRBTime = now;
+
+      if (other > 0 && now - other <= COMBO_WINDOW_MS) {
+        lastLBTime = 0;
+        lastRBTime = 0;
+        try { chrome.runtime.sendMessage({ type: 'closeTab' }); } catch (_) {}
+      }
+      // tab action fires on button up, not down
+      return;
+    }
+
     const action = BUTTON_MAP[index];
     if (!action) return;
 
@@ -247,6 +265,11 @@
     } else if (action.type === 'click') {
       const target = elementAtCursor();
       if (target) {
+        target.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true, cancelable: true,
+          clientX: virtualX, clientY: virtualY,
+          screenX: virtualX, screenY: virtualY,
+        }));
         target.dispatchEvent(new MouseEvent('mousedown', mouseEventInit(action.mouseButton)));
       }
     } else if (action.type === 'playpause') {
@@ -256,14 +279,22 @@
         key: ' ',
         code: 'Space',
       }));
-    } else if (action.type === 'tab') {
-      try {
-        chrome.runtime.sendMessage({ type: 'switchTab', direction: action.direction });
-      } catch (_) {}
     }
   }
 
   function onButtonUp(index) {
+    if (index === BTN.LB || index === BTN.RB) {
+      const wasCombo = index === BTN.LB ? lastLBTime === 0 : lastRBTime === 0;
+      if (!wasCombo) {
+        const action = BUTTON_MAP[index];
+        if (action?.type === 'tab') {
+          try { chrome.runtime.sendMessage({ type: 'switchTab', direction: action.direction }); } catch (_) {}
+        }
+      }
+      if (index === BTN.LB) lastLBTime = 0; else lastRBTime = 0;
+      return;
+    }
+
     const action = BUTTON_MAP[index];
     if (!action) return;
 
