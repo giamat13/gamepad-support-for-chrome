@@ -200,8 +200,9 @@
   function processAxes(gp) {
     const lx = applyDeadzone(gp.axes[0] ?? 0);
     const ly = applyDeadzone(gp.axes[1] ?? 0);
-    const rx = applyDeadzone(gp.axes[2] ?? 0);
-    const ry = applyDeadzone(gp.axes[3] ?? 0);
+    const [rxAxis, ryAxis] = pickRightStickAxes(gp);
+    const rx = applyDeadzone(gp.axes[rxAxis] ?? 0);
+    const ry = applyDeadzone(gp.axes[ryAxis] ?? 0);
 
     // Left stick → move virtual cursor + fire mousemove
     if (lx !== 0 || ly !== 0) {
@@ -221,9 +222,14 @@
 
     // Right stick → scroll
     if (rx !== 0 || ry !== 0) {
-      const scrollTarget = scrollableAt(virtualX, virtualY);
-      if (scrollTarget) {
-        scrollTarget.scrollBy(rx * SCROLL_SPEED, ry * SCROLL_SPEED);
+      scrollAtCursor(rx * SCROLL_SPEED, ry * SCROLL_SPEED);
+    } else {
+      // Diagnostic: right stick moved but our chosen axes read zero → wrong indices.
+      // Fires only on mismatch, so it won't flood the console.
+      const otherAxisActive = gp.axes.some((a, i) => i > 1 && Math.abs(a) > DEADZONE);
+      if (otherAxisActive) {
+        console.warn('[GP] right-stick axes mismatch — raw axes:',
+          gp.axes.map((a) => a.toFixed(2)), '| mapping:', gp.mapping || '(empty)');
       }
     }
   }
@@ -352,15 +358,34 @@
     return document.elementFromPoint(virtualX, virtualY) ?? document.body;
   }
 
-  function scrollableAt(x, y) {
-    let el = document.elementFromPoint(x, y);
-    while (el && el !== document.documentElement) {
-      const style = getComputedStyle(el);
-      const overflow = style.overflow + style.overflowY + style.overflowX;
-      if (/auto|scroll/.test(overflow)) return el;
+  // Right stick axis indices vary by controller. Standard mapping (and most
+  // 4-axis pads) put it on 2/3; common non-standard pads (e.g. PlayStation,
+  // 6 axes where 2 & 5 are triggers) put it on 3/4.
+  function pickRightStickAxes(gp) {
+    if (gp.mapping === 'standard' || gp.axes.length <= 4) return [2, 3];
+    return [3, 4];
+  }
+
+  // Scroll the nearest ancestor of the cursor that can actually move in the
+  // requested direction; fall back to scrolling the whole page.
+  function scrollAtCursor(dx, dy) {
+    let el = document.elementFromPoint(virtualX, virtualY);
+    while (el && el !== document.body && el !== document.documentElement) {
+      if (canScroll(el, dx, dy)) {
+        el.scrollLeft += dx;
+        el.scrollTop += dy;
+        return;
+      }
       el = el.parentElement;
     }
-    return document.scrollingElement ?? document.documentElement;
+    window.scrollBy(dx, dy);
+  }
+
+  function canScroll(el, dx, dy) {
+    const style = getComputedStyle(el);
+    const scrollableY = /auto|scroll/.test(style.overflowY) && el.scrollHeight > el.clientHeight;
+    const scrollableX = /auto|scroll/.test(style.overflowX) && el.scrollWidth > el.clientWidth;
+    return (dy !== 0 && scrollableY) || (dx !== 0 && scrollableX);
   }
 
   function applyDeadzone(value) {
