@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Gamepad for Chrome",
+  "version": "1.0",
+  "description": "Adds gamepad support to websites that don't have it natively",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "Gamepad for Chrome"
+  }
+}
