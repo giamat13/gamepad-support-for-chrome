@@ -269,6 +269,14 @@
       history.forward();
       return;
     }
+    if (xHeld && index === BTN.DPAD_UP) {
+      if (IS_YOUTUBE) adjustYouTubeVolume(0.1);
+      return;
+    }
+    if (xHeld && index === BTN.DPAD_DOWN) {
+      if (IS_YOUTUBE) adjustYouTubeVolume(-0.1);
+      return;
+    }
 
     if (index === BTN.LB || index === BTN.RB) {
       const now = Date.now();
@@ -340,9 +348,8 @@
       }
       return;
     }
-    // If X is still held and DPAD was released, just clear the held flag
-    if (xHeld && (index === BTN.DPAD_LEFT || index === BTN.DPAD_RIGHT)) {
-      xHeld = false;
+    // If X is still held and DPAD was released, do nothing (xHeld stays true)
+    if (xHeld && (index === BTN.DPAD_LEFT || index === BTN.DPAD_RIGHT || index === BTN.DPAD_UP || index === BTN.DPAD_DOWN)) {
       return;
     }
 
@@ -407,6 +414,18 @@
       screenX: virtualX,
       screenY: virtualY,
     };
+  }
+
+  // ── YouTube volume ─────────────────────────────────────────────────────────
+
+  // Adjusts the volume of the currently playing YouTube video by delta (-1..1).
+  // Works on both /watch and /shorts pages.
+  function adjustYouTubeVolume(delta) {
+    const video = document.querySelector('video');
+    if (!video) return;
+    video.volume = Math.max(0, Math.min(1, video.volume + delta));
+    // Unmute if muted and user is raising volume
+    if (delta > 0 && video.muted) video.muted = false;
   }
 
   // ── YouTube like / dislike ─────────────────────────────────────────────────
