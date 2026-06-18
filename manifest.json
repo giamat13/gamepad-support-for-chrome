@@ -3,6 +3,10 @@
   "name": "Gamepad for Chrome",
   "version": "1.0",
   "description": "Adds gamepad support to websites that don't have it natively",
+  "permissions": ["tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

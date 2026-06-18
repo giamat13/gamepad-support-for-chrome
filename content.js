@@ -25,8 +25,8 @@
     [BTN.B]:          { type: 'key',      key: 'Escape',     code: 'Escape' },
     [BTN.X]:          { type: 'playpause' },
     [BTN.Y]:          { type: 'key',      key: 'Tab',        code: 'Tab' },
-    [BTN.LB]:         { type: 'key',      key: 'Tab',        code: 'Tab', shiftKey: true },
-    [BTN.RB]:         { type: 'key',      key: 'Tab',        code: 'Tab' },
+    [BTN.LB]:         { type: 'tab',      direction: 'prev' },
+    [BTN.RB]:         { type: 'tab',      direction: 'next' },
     [BTN.LT]:         { type: 'click',    mouseButton: 2 },
     [BTN.RT]:         { type: 'click',    mouseButton: 0 },
     [BTN.SELECT]:     { type: 'key',      key: 'Escape',     code: 'Escape' },
@@ -171,7 +171,14 @@
   function poll(index) {
     if (!emulationActive) return;
 
-    const gamepads = nativeGetGamepads();
+    let gamepads;
+    try {
+      gamepads = nativeGetGamepads();
+    } catch (_) {
+      schedulePoll(index);
+      return;
+    }
+
     const gp = gamepads[index];
 
     if (!gp) {
@@ -179,11 +186,13 @@
       return;
     }
 
-    processAxes(gp);
-    processButtons(gp);
-
-    prevButtonStates = gp.buttons.map((b) => b.pressed);
-    schedulePoll(index);
+    try {
+      processAxes(gp);
+      processButtons(gp);
+    } finally {
+      prevButtonStates = gp.buttons.map((b) => b.pressed);
+      schedulePoll(index);
+    }
   }
 
   // ── Axes → mouse / scroll ─────────────────────────────────────────────────
@@ -247,6 +256,10 @@
         key: ' ',
         code: 'Space',
       }));
+    } else if (action.type === 'tab') {
+      try {
+        chrome.runtime.sendMessage({ type: 'switchTab', direction: action.direction });
+      } catch (_) {}
     }
   }
 
