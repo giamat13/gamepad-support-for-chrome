@@ -23,7 +23,7 @@
   const BUTTON_MAP = {
     [BTN.A]:          { type: 'click',    mouseButton: 0 },
     [BTN.B]:          { type: 'key',      key: 'Escape',     code: 'Escape' },
-    [BTN.X]:          { type: 'key',      key: ' ',          code: 'Space' },
+    [BTN.X]:          { type: 'playpause' },
     [BTN.Y]:          { type: 'key',      key: 'Tab',        code: 'Tab' },
     [BTN.LB]:         { type: 'key',      key: 'Tab',        code: 'Tab', shiftKey: true },
     [BTN.RB]:         { type: 'key',      key: 'Tab',        code: 'Tab' },
@@ -240,6 +240,13 @@
       if (target) {
         target.dispatchEvent(new MouseEvent('mousedown', mouseEventInit(action.mouseButton)));
       }
+    } else if (action.type === 'playpause') {
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: ' ',
+        code: 'Space',
+      }));
     }
   }
 
@@ -259,6 +266,13 @@
           target.dispatchEvent(new MouseEvent('contextmenu', mouseEventInit(2)));
         }
       }
+    } else if (action.type === 'playpause') {
+      document.dispatchEvent(new KeyboardEvent('keyup', {
+        bubbles: true,
+        cancelable: true,
+        key: ' ',
+        code: 'Space',
+      }));
     }
   }
 
