@@ -27,7 +27,7 @@
     [BTN.A]:          { type: 'click',    mouseButton: 0 },
     [BTN.B]:          { type: 'key',      key: 'Escape',     code: 'Escape' },
     [BTN.X]:          { type: 'playpause' },
-    [BTN.Y]:          { type: 'key',      key: 'Tab',        code: 'Tab' },
+    [BTN.Y]:          { type: 'fullscreen' },
     [BTN.LB]:         { type: 'tab',      direction: 'prev' },
     [BTN.RB]:         { type: 'tab',      direction: 'next' },
     [BTN.L3]:         { type: 'youtube',  target: 'like' },
@@ -252,8 +252,24 @@
   const COMBO_WINDOW_MS = 500;
   let lastLBTime = 0;
   let lastRBTime = 0;
+  let xHeld = false;
 
   function onButtonDown(index) {
+    if (index === BTN.X) {
+      xHeld = true;
+      // X alone still handles playpause — will be dispatched if released without combo
+      return;
+    }
+
+    if (xHeld && index === BTN.DPAD_LEFT) {
+      history.back();
+      return;
+    }
+    if (xHeld && index === BTN.DPAD_RIGHT) {
+      history.forward();
+      return;
+    }
+
     if (index === BTN.LB || index === BTN.RB) {
       const now = Date.now();
       const other = index === BTN.LB ? lastRBTime : lastLBTime;
@@ -290,6 +306,23 @@
         key: ' ',
         code: 'Space',
       }));
+    } else if (action.type === 'fullscreen') {
+      // Only on YouTube watch pages (https://www.youtube.com/watch?v=...)
+      if (IS_YOUTUBE && location.pathname === '/watch' && location.search.includes('v=')) {
+        const fsBtn = document.querySelector('.ytp-fullscreen-button');
+        if (fsBtn) {
+          fsBtn.click();
+        } else {
+          // Fallback: the 'f' key is YouTube's native fullscreen shortcut
+          document.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true, cancelable: true, key: 'f', code: 'KeyF',
+          }));
+        }
+      } else {
+        // On all other pages, fall back to Tab behaviour
+        dispatchKey('keydown', { key: 'Tab', code: 'Tab' });
+        dispatchKey('keyup',   { key: 'Tab', code: 'Tab' });
+      }
     } else if (action.type === 'youtube') {
       // YouTube's like/dislike buttons already toggle: clicking again removes
       // the rating, which gives the "press again to cancel" behaviour for free.
@@ -298,6 +331,21 @@
   }
 
   function onButtonUp(index) {
+    if (index === BTN.X) {
+      if (xHeld) {
+        // X released without a DPAD combo → treat as play/pause
+        xHeld = false;
+        document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+        document.dispatchEvent(new KeyboardEvent('keyup',   { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+      }
+      return;
+    }
+    // If X is still held and DPAD was released, just clear the held flag
+    if (xHeld && (index === BTN.DPAD_LEFT || index === BTN.DPAD_RIGHT)) {
+      xHeld = false;
+      return;
+    }
+
     if (index === BTN.LB || index === BTN.RB) {
       const wasCombo = index === BTN.LB ? lastLBTime === 0 : lastRBTime === 0;
       if (!wasCombo) {
@@ -363,20 +411,60 @@
 
   // ── YouTube like / dislike ─────────────────────────────────────────────────
 
-  // Clicks the like or dislike button on the current YouTube watch page.
-  // Selectors cover the current view-model markup with older-layout fallbacks;
-  // aria-label text is avoided because it is localized.
+  // Clicks the like or dislike button on the current YouTube watch page or
+  // Shorts page. Shorts uses a different component tree (ytd-reel-video-renderer)
+  // and may have several renderers pre-loaded in the DOM at once, so we scope
+  // the search to the active renderer.
   function clickYouTubeRating(target) {
+    // ── Shorts page ──
+    if (location.pathname.startsWith('/shorts/')) {
+      // The active short's renderer carries the is-active attribute.
+      const activeRenderer =
+        document.querySelector('ytd-reel-video-renderer[is-active]') ??
+        document.querySelector('ytd-reel-video-renderer');
+
+      if (activeRenderer) {
+        const shortsBtn = activeRenderer.querySelector(
+          target === 'like'
+            ? 'like-button-view-model button, #like-button button'
+            : 'dislike-button-view-model button, #dislike-button button'
+        );
+        if (shortsBtn) { shortsBtn.click(); return; }
+      }
+
+      // Broader fallback for layout variants (e.g. reel-player-overlay)
+      const shortsFallbackSelectors = target === 'like'
+        ? [
+            'ytd-reel-player-overlay-renderer like-button-view-model button',
+            'ytd-reel-player-overlay-renderer #like-button button',
+          ]
+        : [
+            'ytd-reel-player-overlay-renderer dislike-button-view-model button',
+            'ytd-reel-player-overlay-renderer #dislike-button button',
+          ];
+
+      for (const sel of shortsFallbackSelectors) {
+        const btn = document.querySelector(sel);
+        if (btn) { btn.click(); return; }
+      }
+    }
+
+    // ── Regular watch page ──
     const selectors = target === 'like'
-      ? ['like-button-view-model button', '#segmented-like-button button', '#top-level-buttons-computed ytd-toggle-button-renderer:first-of-type button']
-      : ['dislike-button-view-model button', '#segmented-dislike-button button', '#top-level-buttons-computed ytd-toggle-button-renderer:nth-of-type(2) button'];
+      ? [
+          'like-button-view-model button',
+          '#segmented-like-button button',
+          '#top-level-buttons-computed ytd-toggle-button-renderer:first-of-type button',
+        ]
+      : [
+          'dislike-button-view-model button',
+          '#segmented-dislike-button button',
+          '#top-level-buttons-computed ytd-toggle-button-renderer:nth-of-type(2) button',
+        ];
 
     for (const sel of selectors) {
       const btn = document.querySelector(sel);
-      if (btn) {
-        btn.click();
-        return;
-      }
+      if (btn) { btn.click(); return; }
     }
   }
 
