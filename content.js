@@ -9,6 +9,9 @@
   // How long after gamepad connects to wait before deciding site has no support
   const DETECTION_WINDOW_MS = 800;
 
+  // YouTube-only features are gated on the hostname.
+  const IS_YOUTUBE = /(^|\.)youtube\.com$/.test(location.hostname);
+
   // Standard Gamepad button indices (Xbox layout)
   const BTN = {
     A: 0, B: 1, X: 2, Y: 3,
@@ -27,6 +30,8 @@
     [BTN.Y]:          { type: 'key',      key: 'Tab',        code: 'Tab' },
     [BTN.LB]:         { type: 'tab',      direction: 'prev' },
     [BTN.RB]:         { type: 'tab',      direction: 'next' },
+    [BTN.L3]:         { type: 'youtube',  target: 'like' },
+    [BTN.R3]:         { type: 'youtube',  target: 'dislike' },
     [BTN.LT]:         { type: 'click',    mouseButton: 2 },
     [BTN.RT]:         { type: 'click',    mouseButton: 0 },
     [BTN.SELECT]:     { type: 'key',      key: 'Escape',     code: 'Escape' },
@@ -285,6 +290,10 @@
         key: ' ',
         code: 'Space',
       }));
+    } else if (action.type === 'youtube') {
+      // YouTube's like/dislike buttons already toggle: clicking again removes
+      // the rating, which gives the "press again to cancel" behaviour for free.
+      if (IS_YOUTUBE) clickYouTubeRating(action.target);
     }
   }
 
@@ -350,6 +359,25 @@
       screenX: virtualX,
       screenY: virtualY,
     };
+  }
+
+  // ── YouTube like / dislike ─────────────────────────────────────────────────
+
+  // Clicks the like or dislike button on the current YouTube watch page.
+  // Selectors cover the current view-model markup with older-layout fallbacks;
+  // aria-label text is avoided because it is localized.
+  function clickYouTubeRating(target) {
+    const selectors = target === 'like'
+      ? ['like-button-view-model button', '#segmented-like-button button', '#top-level-buttons-computed ytd-toggle-button-renderer:first-of-type button']
+      : ['dislike-button-view-model button', '#segmented-dislike-button button', '#top-level-buttons-computed ytd-toggle-button-renderer:nth-of-type(2) button'];
+
+    for (const sel of selectors) {
+      const btn = document.querySelector(sel);
+      if (btn) {
+        btn.click();
+        return;
+      }
+    }
   }
 
   // ── DOM utilities ─────────────────────────────────────────────────────────
