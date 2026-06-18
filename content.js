@@ -25,7 +25,7 @@
   // Maps button index → action
   const BUTTON_MAP = {
     [BTN.A]:          { type: 'click',    mouseButton: 0 },
-    [BTN.B]:          { type: 'key',      key: 'Escape',     code: 'Escape' },
+    [BTN.B]:          { type: 'vkb_toggle' },
     [BTN.X]:          { type: 'playpause' },
     [BTN.Y]:          { type: 'fullscreen' },
     [BTN.LB]:         { type: 'tab',      direction: 'prev' },
@@ -52,6 +52,74 @@
   let virtualX = 0;
   let virtualY = 0;
   let activeGamepadIndex = null;
+
+  // ── Virtual keyboard state ────────────────────────────────────────────────
+  let vkbOpen = false;
+  let vkbEl = null;
+  let vkbRow = 0;
+  let vkbCol = 0;
+  let vkbShift = false;
+  let vkbCapsLock = false;
+  let vkbLang = 'en'; // 'en' | 'he'
+
+  // Rows are ordered bottom→top (row 0 = bottom row, displayed last → appears at bottom).
+  // D-Pad UP increases vkbRow (moves visually upward), DOWN decreases it.
+  const VKB_ROWS_EN = [
+    ['עב',' ','←','→'],                                          // row 0 – bottom
+    ['⇧','z','x','c','v','b','n','m',',','.','/',  '⇧'],        // row 1
+    ['⇪','a','s','d','f','g','h','j','k','l',';',"'",'↵'],      // row 2
+    ['q','w','e','r','t','y','u','i','o','p','[',']','\\'],      // row 3
+    ['`','1','2','3','4','5','6','7','8','9','0','-','=','⌫'],   // row 4 – top
+  ];
+
+  // Hebrew layout — QWERTY positions map to Hebrew letters
+  // Row order: bottom→top (same convention)
+  const VKB_ROWS_HE = [
+    ['EN',' ','←','→'],
+    ['⇧','ז','ס','ב','ה','נ','מ','צ','ת','ץ','.',  '⇧'],
+    ['⇪','ש','ד','ג','כ','ע','י','ח','ל','ך','פ','ף','↵'],
+    ['ק','ו','א','ר','ט','ז','ו','ן','ם','פ',']','[','\\'],
+    ['`','1','2','3','4','5','6','7','8','9','0','-','=','⌫'],
+  ];
+
+  // Proper Hebrew QWERTY mapping (standard Israeli keyboard)
+  const HE_MAP = {
+    q:'/', w:"'", e:'ק', r:'ר', t:'א', y:'ט', u:'ו', i:'ן', o:'ם', p:'פ',
+    a:'ש', s:'ד', d:'ג', f:'כ', g:'ע', h:'י', j:'ח', k:'ל', l:'ך',
+    z:'ז', x:'ס', c:'ב', v:'ה', b:'נ', n:'מ', m:'צ',
+    ',':'ת', '.':'ץ', '/':'.',
+    '[':']', ']':'[',
+  };
+
+  // Build Hebrew rows from EN rows, replacing letters with Hebrew equivalents
+  function buildHeRows() {
+    return VKB_ROWS_EN.map((row, ri) => {
+      if (ri === 0) return ['EN', ' ', '←', '→'];
+      return row.map(k => {
+        if (k.length === 1 && HE_MAP[k.toLowerCase()]) return HE_MAP[k.toLowerCase()];
+        return k;
+      });
+    });
+  }
+
+  const VKB_ROWS_HE_BUILT = buildHeRows();
+
+  function vkbRows() {
+    return vkbLang === 'he' ? VKB_ROWS_HE_BUILT : VKB_ROWS_EN;
+  }
+
+  const VKB_SHIFT_MAP = {
+    '`':'~','1':'!','2':'@','3':'#','4':'$','5':'%','6':'^',
+    '7':'&','8':'*','9':'(','0':')','-':'_','=':'+',
+    '[':'{',']':'}','\\':'|',';':':','\'':'"',',':'<','.':'>','/':'?',
+  };
+
+  const VKB_KEY_MAP = {
+    '⌫': { key: 'Backspace',  code: 'Backspace'  },
+    '↵': { key: 'Enter',      code: 'Enter'      },
+    '←': { key: 'ArrowRight', code: 'ArrowRight' }, // RTL: visual left = logical right
+    '→': { key: 'ArrowLeft',  code: 'ArrowLeft'  }, // RTL: visual right = logical left
+  };
 
   // Save the native getGamepads before any page script can run (document_start)
   const nativeGetGamepads = navigator.getGamepads
@@ -255,6 +323,20 @@
   let xHeld = false;
 
   function onButtonDown(index) {
+    // ── Virtual keyboard intercepts B, D-Pad, and A when open ────────────────
+    if (index === BTN.B) {
+      vkbToggle();
+      return;
+    }
+
+    if (vkbOpen) {
+      if (index === BTN.DPAD_UP)    { vkbMove(-1, 0); return; }
+      if (index === BTN.DPAD_DOWN)  { vkbMove( 1, 0); return; }
+      if (index === BTN.DPAD_LEFT)  { vkbMove( 0,-1); return; }
+      if (index === BTN.DPAD_RIGHT) { vkbMove( 0, 1); return; }
+      if (index === BTN.A)          { vkbPress();      return; }
+    }
+
     if (index === BTN.X) {
       xHeld = true;
       // X alone still handles playpause — will be dispatched if released without combo
@@ -339,6 +421,16 @@
   }
 
   function onButtonUp(index) {
+    // B is handled fully on keydown (toggle); skip on up
+    if (index === BTN.B) return;
+
+    // While VKB is open, D-Pad and A are consumed on keydown; skip on up
+    if (vkbOpen && (
+      index === BTN.DPAD_UP || index === BTN.DPAD_DOWN ||
+      index === BTN.DPAD_LEFT || index === BTN.DPAD_RIGHT ||
+      index === BTN.A
+    )) return;
+
     if (index === BTN.X) {
       if (xHeld) {
         // X released without a DPAD combo → treat as play/pause
@@ -485,6 +577,205 @@
       const btn = document.querySelector(sel);
       if (btn) { btn.click(); return; }
     }
+  }
+
+  // ── Virtual keyboard ──────────────────────────────────────────────────────
+
+  function vkbToggle() {
+    if (vkbOpen) {
+      vkbClose();
+    } else {
+      vkbOpenKeyboard();
+    }
+  }
+
+  function vkbOpenKeyboard() {
+    if (vkbEl) return;
+    vkbOpen = true;
+    vkbRow = 2; // home row (row index 2 from bottom = 'a s d f ...' / 'ש ד ג כ ...')
+    vkbCol = 1;
+
+    vkbEl = document.createElement('div');
+    vkbEl.id = '__gp4chrome_vkb__';
+    Object.assign(vkbEl.style, {
+      position: 'fixed',
+      bottom: '12px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: '2147483646',
+      background: 'rgba(30,30,36,0.97)',
+      borderRadius: '14px',
+      padding: '10px 12px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+      userSelect: 'none',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '5px',
+      minWidth: '420px',
+    });
+
+    vkbRender();
+    (document.body || document.documentElement).appendChild(vkbEl);
+  }
+
+  function vkbClose() {
+    vkbOpen = false;
+    if (vkbEl) { vkbEl.remove(); vkbEl = null; }
+  }
+
+  function vkbRender() {
+    if (!vkbEl) return;
+    vkbEl.innerHTML = '';
+
+    // Add language indicator header
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      textAlign: 'center',
+      fontSize: '11px',
+      color: 'rgba(255,255,255,0.4)',
+      marginBottom: '2px',
+      letterSpacing: '0.5px',
+    });
+    header.textContent = vkbLang === 'he' ? '🇮🇱 עברית — B לסגור' : '🇺🇸 English — B to close';
+    vkbEl.appendChild(header);
+
+    const rows = vkbRows();
+    // Render top→bottom visually = high row index first
+    for (let ri = rows.length - 1; ri >= 0; ri--) {
+      const row = rows[ri];
+      const rowEl = document.createElement('div');
+      Object.assign(rowEl.style, {
+        display: 'flex',
+        gap: '4px',
+        justifyContent: 'center',
+        direction: 'ltr', // always LTR so key positions stay consistent with D-Pad
+      });
+
+      row.forEach((key, ci) => {
+        const keyEl = document.createElement('div');
+        const isSelected = ri === vkbRow && ci === vkbCol;
+        const isWide = key === ' ' || key === '⌫' || key === '↵' || key === '⇧' || key === '⇪' || key === 'עב' || key === 'EN';
+        const displayKey = vkbLang === 'en' && (vkbShift || vkbCapsLock) && VKB_SHIFT_MAP[key]
+          ? VKB_SHIFT_MAP[key] : key;
+        const isCapsActive = vkbCapsLock && key === '⇪';
+        const isShiftActive = vkbShift && key === '⇧';
+        const isLangKey = key === 'עב' || key === 'EN';
+
+        Object.assign(keyEl.style, {
+          minWidth:  key === ' ' ? '100px' : isWide ? '52px' : '28px',
+          height:    '34px',
+          borderRadius: '6px',
+          display:   'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize:  key.length > 1 ? '11px' : '13px',
+          fontWeight: '500',
+          cursor:    'pointer',
+          transition: 'none',
+          color:     isSelected ? '#111'
+            : (isCapsActive || isShiftActive) ? '#f9c74f'
+            : isLangKey ? '#74c0fc'
+            : '#e0e0e0',
+          background: isSelected
+            ? '#f0f0f0'
+            : (isCapsActive || isShiftActive)
+              ? 'rgba(249,199,79,0.18)'
+              : isLangKey
+                ? 'rgba(116,192,252,0.15)'
+                : 'rgba(255,255,255,0.09)',
+          border:    isSelected ? '2px solid #fff' : '2px solid transparent',
+          boxShadow: isSelected ? '0 0 0 2px #1a73e8' : 'none',
+          flexShrink: '0',
+        });
+        keyEl.textContent = displayKey;
+        rowEl.appendChild(keyEl);
+      });
+
+      vkbEl.appendChild(rowEl);
+    }
+  }
+
+  function vkbMove(dr, dc) {
+    if (!vkbOpen) return;
+    const rows = vkbRows();
+    if (dr !== 0) {
+      // D-Pad UP (-1 from caller) moves visually up = higher row index, so negate dr
+      vkbRow = Math.max(0, Math.min(rows.length - 1, vkbRow - dr));
+      vkbCol = Math.min(vkbCol, rows[vkbRow].length - 1);
+    } else {
+      const rowLen = rows[vkbRow].length;
+      vkbCol = (vkbCol + dc + rowLen) % rowLen;
+    }
+    vkbRender();
+  }
+
+  function vkbPress() {
+    if (!vkbOpen) return;
+    const key = vkbRows()[vkbRow][vkbCol];
+
+    if (key === '⇧') {
+      vkbShift = !vkbShift;
+      vkbRender();
+      return;
+    }
+    if (key === '⇪') {
+      vkbCapsLock = !vkbCapsLock;
+      vkbShift = false;
+      vkbRender();
+      return;
+    }
+    if (key === 'עב' || key === 'EN') {
+      vkbLang = vkbLang === 'en' ? 'he' : 'en';
+      vkbShift = false;
+      vkbCapsLock = false;
+      // Clamp col in case new row is shorter
+      vkbCol = Math.min(vkbCol, vkbRows()[vkbRow].length - 1);
+      vkbRender();
+      return;
+    }
+
+    const target = document.activeElement && document.activeElement !== document.body
+      ? document.activeElement
+      : document.elementFromPoint(virtualX, virtualY) ?? document.body;
+
+    if (VKB_KEY_MAP[key]) {
+      const { key: k, code } = VKB_KEY_MAP[key];
+      target.dispatchEvent(new KeyboardEvent('keydown',  { bubbles: true, cancelable: true, key: k, code }));
+      target.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, cancelable: true, key: k, code }));
+      target.dispatchEvent(new KeyboardEvent('keyup',    { bubbles: true, cancelable: true, key: k, code }));
+    } else {
+      // Printable character
+      let ch = key;
+      if (vkbLang === 'en') {
+        // English: apply shift/caps
+        if (VKB_SHIFT_MAP[key] && vkbShift) ch = VKB_SHIFT_MAP[key];
+        else if (ch.length === 1 && (vkbShift || vkbCapsLock)) ch = ch.toUpperCase();
+      }
+      // Hebrew letters have no case — use as-is
+
+      // Insert into editable targets directly; dispatch key events elsewhere
+      if (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        target.dispatchEvent(new KeyboardEvent('keydown',  { bubbles: true, cancelable: true, key: ch }));
+        target.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: ch }));
+        if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && typeof target.selectionStart === 'number') {
+          const s = target.selectionStart;
+          const e = target.selectionEnd;
+          target.value = target.value.slice(0, s) + ch + target.value.slice(e);
+          target.selectionStart = target.selectionEnd = s + ch.length;
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: ch }));
+      } else {
+        target.dispatchEvent(new KeyboardEvent('keydown',  { bubbles: true, cancelable: true, key: ch }));
+        target.dispatchEvent(new KeyboardEvent('keypress', { bubbles: true, cancelable: true, key: ch }));
+        target.dispatchEvent(new KeyboardEvent('keyup',    { bubbles: true, cancelable: true, key: ch }));
+      }
+
+      // Auto-cancel shift after one character (English only)
+      if (vkbShift && vkbLang === 'en') { vkbShift = false; }
+    }
+    vkbRender();
   }
 
   // ── DOM utilities ─────────────────────────────────────────────────────────
