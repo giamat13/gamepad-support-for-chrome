@@ -530,34 +530,25 @@
     return true;
   }
 
-  // ── YouTube player key ────────────────────────────────────────────────────
+  // ── YouTube seek ──────────────────────────────────────────────────────────
 
-  // Dispatches a key directly to the YouTube player element so its own
-  // keyboard handler fires (seek, volume, etc.) regardless of focus state.
+  // Seeks the YouTube video by delta seconds. Operates directly on the <video>
+  // element's native currentTime — the player API (seekTo) lives in the page's
+  // JS world and isn't reachable from the content script's isolated world.
   function youTubePlayerKey(key) {
-    const player = document.querySelector('#movie_player');
-    if (!player) return;
-    ['keydown', 'keyup'].forEach(type =>
-      player.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, key, code: key }))
-    );
+    const video = document.querySelector('video');
+    if (!video) return;
+    const delta = key === 'ArrowRight' ? 5 : -5;
+    video.currentTime = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + delta));
   }
 
   // ── YouTube volume ─────────────────────────────────────────────────────────
 
   // Adjusts the volume of the currently playing YouTube video by delta (-1..1).
-  // Uses YouTube's own player API so the UI indicator updates and the setting persists.
+  // Operates directly on the <video> element's native volume property — the
+  // player API lives in the page's JS world and isn't reachable from the
+  // content script's isolated world.
   function adjustYouTubeVolume(delta) {
-    // YouTube's built-in player API (getVolume returns 0–100)
-    const player = document.querySelector('#movie_player');
-    if (player && typeof player.getVolume === 'function') {
-      const next = Math.max(0, Math.min(100, Math.round(player.getVolume() + delta * 100)));
-      player.setVolume(next);
-      if (delta > 0 && typeof player.isMuted === 'function' && player.isMuted()) {
-        player.unMute();
-      }
-      return;
-    }
-    // Fallback: direct video element (no UI update but affects audio)
     const video = document.querySelector('video');
     if (!video) return;
     video.volume = Math.max(0, Math.min(1, video.volume + delta));
