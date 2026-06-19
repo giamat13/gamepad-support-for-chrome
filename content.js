@@ -435,8 +435,10 @@
       if (xHeld) {
         // X released without a DPAD combo → treat as play/pause
         xHeld = false;
-        document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
-        document.dispatchEvent(new KeyboardEvent('keyup',   { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+        if (!toggleYouTubePlayPause()) {
+          document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+          document.dispatchEvent(new KeyboardEvent('keyup',   { bubbles: true, cancelable: true, key: ' ', code: 'Space' }));
+        }
       }
       return;
     }
@@ -506,6 +508,25 @@
       screenX: virtualX,
       screenY: virtualY,
     };
+  }
+
+  // ── YouTube play / pause ───────────────────────────────────────────────────
+
+  // Toggles play/pause of the current YouTube video by operating directly on the
+  // <video> element. Dispatching the Space key works on Shorts but is unreliable
+  // on regular /watch pages (it only pauses when the player has focus), so on
+  // YouTube we control the media element directly. Returns true if it handled the
+  // toggle, false to let the caller fall back to dispatching Space.
+  function toggleYouTubePlayPause() {
+    if (!IS_YOUTUBE) return false;
+    const video = document.querySelector('video');
+    if (!video) return false;
+    if (video.paused) {
+      video.play();
+    } else {
+      video.pause();
+    }
+    return true;
   }
 
   // ── YouTube volume ─────────────────────────────────────────────────────────
