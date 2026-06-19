@@ -343,21 +343,16 @@
       return;
     }
 
-    if (xHeld && index === BTN.DPAD_LEFT) {
-      history.back();
-      return;
-    }
-    if (xHeld && index === BTN.DPAD_RIGHT) {
-      history.forward();
-      return;
-    }
-    if (xHeld && index === BTN.DPAD_UP) {
-      if (IS_YOUTUBE) adjustYouTubeVolume(0.1);
-      return;
-    }
-    if (xHeld && index === BTN.DPAD_DOWN) {
-      if (IS_YOUTUBE) adjustYouTubeVolume(-0.1);
-      return;
+    if (xHeld && index === BTN.DPAD_LEFT)  { history.back();    return; }
+    if (xHeld && index === BTN.DPAD_RIGHT) { history.forward(); return; }
+    if (xHeld && (index === BTN.DPAD_UP || index === BTN.DPAD_DOWN)) return;
+
+    // YouTube: DPAD without X controls the video player directly
+    if (IS_YOUTUBE && !xHeld) {
+      if (index === BTN.DPAD_UP)    { adjustYouTubeVolume(0.1);          return; }
+      if (index === BTN.DPAD_DOWN)  { adjustYouTubeVolume(-0.1);         return; }
+      if (index === BTN.DPAD_LEFT)  { youTubePlayerKey('ArrowLeft');     return; }
+      if (index === BTN.DPAD_RIGHT) { youTubePlayerKey('ArrowRight');    return; }
     }
 
     if (index === BTN.LB || index === BTN.RB) {
@@ -447,6 +442,12 @@
       return;
     }
 
+    // YouTube DPAD (no X) was handled fully on keydown; skip keyup
+    if (IS_YOUTUBE && !xHeld && (
+      index === BTN.DPAD_UP || index === BTN.DPAD_DOWN ||
+      index === BTN.DPAD_LEFT || index === BTN.DPAD_RIGHT
+    )) return;
+
     if (index === BTN.LB || index === BTN.RB) {
       const wasCombo = index === BTN.LB ? lastLBTime === 0 : lastRBTime === 0;
       if (!wasCombo) {
@@ -529,15 +530,37 @@
     return true;
   }
 
+  // ── YouTube player key ────────────────────────────────────────────────────
+
+  // Dispatches a key directly to the YouTube player element so its own
+  // keyboard handler fires (seek, volume, etc.) regardless of focus state.
+  function youTubePlayerKey(key) {
+    const player = document.querySelector('#movie_player');
+    if (!player) return;
+    ['keydown', 'keyup'].forEach(type =>
+      player.dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, key, code: key }))
+    );
+  }
+
   // ── YouTube volume ─────────────────────────────────────────────────────────
 
   // Adjusts the volume of the currently playing YouTube video by delta (-1..1).
-  // Works on both /watch and /shorts pages.
+  // Uses YouTube's own player API so the UI indicator updates and the setting persists.
   function adjustYouTubeVolume(delta) {
+    // YouTube's built-in player API (getVolume returns 0–100)
+    const player = document.querySelector('#movie_player');
+    if (player && typeof player.getVolume === 'function') {
+      const next = Math.max(0, Math.min(100, Math.round(player.getVolume() + delta * 100)));
+      player.setVolume(next);
+      if (delta > 0 && typeof player.isMuted === 'function' && player.isMuted()) {
+        player.unMute();
+      }
+      return;
+    }
+    // Fallback: direct video element (no UI update but affects audio)
     const video = document.querySelector('video');
     if (!video) return;
     video.volume = Math.max(0, Math.min(1, video.volume + delta));
-    // Unmute if muted and user is raising volume
     if (delta > 0 && video.muted) video.muted = false;
   }
 
