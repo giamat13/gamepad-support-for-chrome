@@ -321,6 +321,22 @@
   let lastLBTime = 0;
   let lastRBTime = 0;
   let xHeld = false;
+  let startHeld = false;
+
+  // Normal reload — like F5 / clicking refresh.
+  function reloadPage() {
+    location.reload();
+  }
+
+  // Hard reload that bypasses the cache — like Ctrl+F5.
+  // location.reload(true) is deprecated and the forceGet flag is ignored in
+  // Chrome, so we force a fresh fetch by appending a unique cache-busting query
+  // parameter (a timestamp), which the browser treats as a distinct URL.
+  function hardReload() {
+    const url = new URL(location.href);
+    url.searchParams.set('__gp4chrome_cb', Date.now().toString());
+    location.replace(url.toString());
+  }
 
   function onButtonDown(index) {
     // ── Virtual keyboard intercepts B, D-Pad, and A when open ────────────────
@@ -340,6 +356,17 @@
     if (index === BTN.X) {
       xHeld = true;
       // X alone still handles playpause — will be dispatched if released without combo
+      return;
+    }
+
+    if (index === BTN.START) {
+      startHeld = true;
+      // START still fires Enter below; don't return.
+    }
+
+    // Back button: reload the page. Back + Start: hard reload (bypass cache).
+    if (index === BTN.SELECT) {
+      if (startHeld) hardReload(); else reloadPage();
       return;
     }
 
@@ -418,6 +445,11 @@
   function onButtonUp(index) {
     // B is handled fully on keydown (toggle); skip on up
     if (index === BTN.B) return;
+
+    if (index === BTN.START) startHeld = false;
+
+    // SELECT (Back) is handled fully on keydown (reload); skip on up
+    if (index === BTN.SELECT) return;
 
     // While VKB is open, D-Pad and A are consumed on keydown; skip on up
     if (vkbOpen && (
