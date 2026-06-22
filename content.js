@@ -153,6 +153,10 @@
     setTimeout(() => {
       if (!siteUsesGamepadAPI) {
         startEmulation(activeGamepadIndex);
+      } else {
+        // Site has native gamepad support: stay fully out of its way and only
+        // watch for the Back+Start escape combo so the user isn't trapped.
+        startEscapeWatcher(activeGamepadIndex);
       }
     }, DETECTION_WINDOW_MS);
   });
@@ -160,6 +164,7 @@
   window.addEventListener('gamepaddisconnected', (e) => {
     if (e.gamepad.index === activeGamepadIndex) {
       stopEmulation();
+      stopEscapeWatcher();
       activeGamepadIndex = null;
       siteUsesGamepadAPI = false;
     }
@@ -193,6 +198,112 @@
       rafId = null;
     }
     removeCursor();
+  }
+
+  // ── Escape watcher (site has native gamepad support) ───────────────────────
+  // When the page polls the Gamepad API itself, we disable the extension
+  // completely in this tab — no virtual cursor, no emulated mouse/keyboard
+  // input — so we never interfere with a site that already handles the pad.
+  // The only thing we still listen for is a deliberate escape gesture: pressing
+  // Back + Start together ESCAPE_COMBO_COUNT times switches to the next tab, so
+  // the user can leave the page without reaching for the mouse.
+
+  const ESCAPE_COMBO_COUNT = 5;
+  const ESCAPE_COMBO_RESET_MS = 2000; // forget progress if presses are too slow
+  let escapeRafId = null;
+  let escapeCount = 0;
+  let escapeLastTime = 0;
+  let escapeComboPrev = false;
+
+  function startEscapeWatcher(index) {
+    if (escapeRafId !== null) return;
+
+    const loop = () => {
+      let gamepads;
+      try {
+        gamepads = nativeGetGamepads();
+      } catch (_) {
+        escapeRafId = requestAnimationFrame(loop);
+        return;
+      }
+
+      const gp = gamepads[index];
+      if (gp) {
+        const comboDown =
+          !!gp.buttons[BTN.SELECT]?.pressed && !!gp.buttons[BTN.START]?.pressed;
+
+        // Count only the rising edge of the combo (both pressed this frame,
+        // not the previous one) so a single hold isn't counted repeatedly.
+        if (comboDown && !escapeComboPrev) {
+          const now = Date.now();
+          if (now - escapeLastTime > ESCAPE_COMBO_RESET_MS) escapeCount = 0;
+          escapeLastTime = now;
+          escapeCount++;
+          showEscapeToast(escapeCount);
+
+          if (escapeCount >= ESCAPE_COMBO_COUNT) {
+            escapeCount = 0;
+            try {
+              chrome.runtime.sendMessage({ type: 'switchTab', direction: 'next' });
+            } catch (_) {}
+          }
+        }
+        escapeComboPrev = comboDown;
+      }
+
+      escapeRafId = requestAnimationFrame(loop);
+    };
+
+    escapeRafId = requestAnimationFrame(loop);
+  }
+
+  function stopEscapeWatcher() {
+    if (escapeRafId !== null) {
+      cancelAnimationFrame(escapeRafId);
+      escapeRafId = null;
+    }
+    escapeCount = 0;
+    escapeComboPrev = false;
+    removeEscapeToast();
+  }
+
+  // Brief, non-interactive feedback so the user knows the escape combo is
+  // registering and how many presses remain. Auto-dismisses after a moment.
+  let escapeToastEl = null;
+  let escapeToastTimer = null;
+
+  function showEscapeToast(count) {
+    if (!escapeToastEl) {
+      escapeToastEl = document.createElement('div');
+      escapeToastEl.id = '__gp4chrome_escape__';
+      Object.assign(escapeToastEl.style, {
+        position: 'fixed',
+        bottom: '16px',
+        right: '16px',
+        zIndex: '2147483647',
+        background: 'rgba(20,20,26,0.92)',
+        color: '#e8e8e8',
+        font: '600 13px system-ui, -apple-system, sans-serif',
+        padding: '8px 12px',
+        borderRadius: '8px',
+        pointerEvents: 'none',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        direction: 'rtl',
+      });
+      (document.body || document.documentElement).appendChild(escapeToastEl);
+    }
+    escapeToastEl.textContent = `🎮 ${count}/${ESCAPE_COMBO_COUNT} — מעבר לטאב הבא`;
+    clearTimeout(escapeToastTimer);
+    escapeToastTimer = setTimeout(removeEscapeToast, 1500);
+  }
+
+  function removeEscapeToast() {
+    clearTimeout(escapeToastTimer);
+    escapeToastTimer = null;
+    if (escapeToastEl) {
+      escapeToastEl.remove();
+      escapeToastEl = null;
+    }
   }
 
   // ── Virtual cursor ─────────────────────────────────────────────────────────

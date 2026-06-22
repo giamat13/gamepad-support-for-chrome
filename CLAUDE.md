@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The entire extension is a **single content script** (`content.js`) that:
 
 1. **Detects gamepad support**: Wraps `navigator.getGamepads()` at `document_start` to detect whether the page actively polls the Gamepad API
-2. **Determines if emulation is needed**: When a gamepad connects, waits 800ms; if the site hasn't called `getGamepads()` by then, assumes no native support and activates emulation
+2. **Determines if emulation is needed**: When a gamepad connects, waits 800ms; if the site hasn't called `getGamepads()` by then, assumes no native support and activates emulation. If the site *did* call `getGamepads()`, the extension disables itself completely in that tab (no cursor, no emulated input) and runs only an **escape watcher** — pressing **Back+Start together 5 times** switches to the next tab so the user isn't trapped on a site that already handles the pad
 3. **Emulates gamepad input**: Uses `requestAnimationFrame` polling to:
    - Translate analog sticks into mouse movement and scrolling
    - Map physical buttons to keyboard and mouse events
